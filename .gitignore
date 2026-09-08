@@ -1,0 +1,20 @@
+########---> copy noi dung ben duoi vao file #########
+# Thư mục runtime containerlab tự sinh ra (log, config đã apply, state...)
+clab-*/
+
+# File binary/image nặng (không nên commit — dễ vượt giới hạn dung lượng Git, và có bản quyền)
+*.bin
+*.qcow2
+*.iso
+*.vmdk
+
+# File license/credential nhạy cảm
+*iourc*
+*.pem
+*.key
+
+# File tạm
+*.log
+.DS_Store
+
+

@@ -1,0 +1,67 @@
+{
+  "freeTextAnnotations": [],
+  "freeShapeAnnotations": [],
+  "trafficRateAnnotations": [],
+  "groupStyleAnnotations": [],
+  "networkNodeAnnotations": [
+    {
+      "id": "macvlan:ens160",
+      "type": "macvlan",
+      "label": "macvlan:ens160",
+      "position": {
+        "x": 560,
+        "y": 340
+      }
+    }
+  ],
+  "nodeAnnotations": [
+    {
+      "id": "sw1-wan",
+      "interfacePattern": "e0/{n}",
+      "position": {
+        "x": 420,
+        "y": 340
+      }
+    },
+    {
+      "id": "sw2-dmz",
+      "interfacePattern": "e0/{n}",
+      "position": {
+        "x": 280,
+        "y": 440
+      }
+    },
+    {
+      "id": "sw3-inside",
+      "interfacePattern": "e0/{n}",
+      "position": {
+        "x": 140,
+        "y": 340
+      }
+    },
+    {
+      "id": "pan",
+      "position": {
+        "x": 280,
+        "y": 340
+      }
+    },
+    {
+      "id": "client-inside",
+      "position": {
+        "x": 20,
+        "y": 340
+      }
+    },
+    {
+      "id": "client-dmz",
+      "position": {
+        "x": 280,
+        "y": 580
+      }
+    }
+  ],
+  "edgeAnnotations": [],
+  "aliasEndpointAnnotations": [],
+  "viewerSettings": {}
+}
