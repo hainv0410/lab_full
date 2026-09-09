@@ -9,17 +9,17 @@
       "type": "macvlan",
       "label": "macvlan:ens160",
       "position": {
-        "x": 560,
+        "x": 420,
         "y": 340
       }
     }
   ],
   "nodeAnnotations": [
     {
-      "id": "sw1-wan",
+      "id": "client-wan",
       "interfacePattern": "e0/{n}",
       "position": {
-        "x": 420,
+        "x": 520,
         "y": 340
       }
     },
@@ -57,7 +57,7 @@
       "id": "client-dmz",
       "position": {
         "x": 280,
-        "y": 580
+        "y": 560
       }
     }
   ],

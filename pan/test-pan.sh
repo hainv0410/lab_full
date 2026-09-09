@@ -1,6 +1,6 @@
 configure
-set network interface ethernet ethernet1/1 layer3 ip 10.0.0.199/24
-set network virtual-router default interface ethernet1/1
+set network interface ethernet ethernet1/3 layer3 ip 192.168.3.1/24
+set network virtual-router default interface ethernet1/3
 set network virtual-router default routing-table ip static-route default nexthop ip-address 10.0.1.2 destination 0.0.0.0/0
 commit
 
@@ -15,12 +15,12 @@ set network profiles interface-management-profile allow-mgmt http no
 
 (đặt tên profile là allow-mgmt, bạn có thể đổi tên tùy ý)
 
-Bước 3: Gán IP + zone + apply profile vừa tạo cho Ethernet1/1
-set network interface ethernet ethernet1/1 layer3 ip 10.0.1.199/24
-set network interface ethernet ethernet1/1 layer3 interface-management-profile allow-mgmt
+Bước 3: Gán IP + zone + apply profile vừa tạo cho Ethernet1/3
+set network interface ethernet ethernet1/3 layer3 ip 10.0.1.199/24
+set network interface ethernet ethernet1/3 layer3 interface-management-profile allow-mgmt
 
-set zone DMZ network layer3 ethernet1/1
-set network virtual-router default interface ethernet1/1
+set zone DMZ network layer3 ethernet1/3
+set network virtual-router default interface ethernet1/3
 
 (dùng zone tên DMZ, bạn đổi tên tùy theo lab của mình; lưu ý IP 10.0.1.199/24 để cùng dải với gateway 10.0.1.2 mà bạn nêu trước đó — nếu gateway thật khác, đổi lại cho đúng)
 
@@ -66,7 +66,7 @@ set network profiles interface-management-profile allow-mgmt response-pages yes
 set network interface ethernet ethernet1/1 layer3 interface-management-profile allow-mgmt
 
 #Đảm bảo interface thuộc đúng zone và virtual router
-set zone DMZ network layer3 ethernet1/1
+set zone outside network layer3 ethernet1/1
 set network virtual-router default interface ethernet1/1
 commit
 

@@ -14,11 +14,11 @@ topology:
         USERNAME: admin
         PASSWORD: Admin@123
 
-    sw1-wan:
-      kind: cisco_iol
-      image: vrnetlab/cisco_iol:L2-17.12.01
-      mgmt-ipv4: 172.2.2.7
-      startup-config: sw1.txt
+#    sw1-wan:
+#      kind: cisco_iol
+#      image: vrnetlab/cisco_iol:L2-17.12.01
+#      mgmt-ipv4: 172.2.2.7
+#      startup-config: sw1.txt
 
     sw2-dmz:
       kind: cisco_iol
@@ -37,24 +37,54 @@ topology:
       image: alpine:latest
       mgmt-ipv4: 172.2.2.20
       exec:
-        - apk add --no-cache iputils curl bind-tools
+        - apk add --no-cache iputils curl bind-tools mtr tcpdump nmap-ncat busybox-extras
+        - ip addr add 192.168.3.10/24 dev eth1
+        - ip link set eth1 up
+        - ip route del default
+        - ip route add default via 192.168.3.1
 
     client-dmz:
       kind: linux
       image: alpine:latest
       mgmt-ipv4: 172.2.2.21
       exec:
-        - apk add --no-cache iputils curl bind-tools
+        - apk add --no-cache iputils curl bind-tools mtr tcpdump nmap-ncat busybox-extras
+        - apk update
+        - apk add nginx
+        - sh -c 'echo "<h1>Hello from Alpine Web Server</h1>" > /usr/share/nginx/html/index.html'
+        - nginx
+        - ip addr add 192.168.2.10/24 dev eth1
+        - ip link set eth1 up
+        - ip route del default
+        - ip route add default via 192.168.2.1
+
+    client-wan:
+      kind: linux
+      image: alpine:latest
+      mgmt-ipv4: 172.2.2.22
+      exec:
+        - apk add --no-cache iputils curl bind-tools mtr tcpdump nmap-ncat busybox-extras
+        - ip addr add 10.0.1.201/24 dev eth1
+        - ip link set eth1 up
+        - ip route del default
+        - ip route add default via 10.0.1.2
+        - apk update
+        - apk add nginx
+        - sh -c 'echo "<h1>Hello from Alpine Web Server</h1>" > /usr/share/nginx/html/index.html'
+        - nginx
+
 
   links:
     # Ethernet1/1 - Outside zone (ra Internet thật qua macvlan)
-    - endpoints: ["pan:Ethernet1/1", "sw1-wan:e0/1"]
+    - endpoints: ["pan:Ethernet1/1", "macvlan:ens160"]
     - endpoints: ["pan:Ethernet1/2", "sw2-dmz:e0/1"]
     - endpoints: ["pan:Ethernet1/3", "sw3-inside:e0/1"]
 
     # switch-wan e0/2 - Outside zone (ra Internet thật qua macvlan)
-    - endpoints: ["sw1-wan:e0/2", "macvlan:ens160"]
+#    - endpoints: ["sw1-wan:e0/2", "macvlan:ens160"]
 
     # switch-dmz, inside, e0/2 - client
     - endpoints: ["sw2-dmz:e0/2", "client-dmz:eth1"]
     - endpoints: ["sw3-inside:e0/2", "client-inside:eth1"]
+
+    - endpoints: ["client-wan:eth1", "macvlan:ens160"]
