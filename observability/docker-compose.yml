@@ -1,0 +1,373 @@
+version: "3.9"
+
+networks:
+  lab-net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+  loki_data:
+  tempo_data:
+
+services:
+  # ─────────────── Infrastructure ───────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: postgres
+    environment:
+      POSTGRES_DB: orders
+      POSTGRES_USER: lab
+      POSTGRES_PASSWORD: lab
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - lab-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lab -d orders"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - lab-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: lab
+      RABBITMQ_DEFAULT_PASS: lab
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+      - "15692:15692"   # Prometheus metrics plugin
+    networks:
+      - lab-net
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+  # ─────────────── Observability Stack ───────────────
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.96.0
+    container_name: otel-collector
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ./infra/otel-collector/config.yaml:/etc/otel/config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "8888:8888"   # OTel metrics
+      - "8889:8889"   # Prometheus exporter
+    networks:
+      - lab-net
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+      - "--web.enable-remote-write-receiver"
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/prometheus/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - lab-net
+
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_FEATURE_TOGGLES_ENABLE: traceqlEditor
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    networks:
+      - lab-net
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+
+  loki:
+    image: grafana/loki:2.9.5
+    container_name: loki
+    command: -config.file=/etc/loki/config.yaml
+    volumes:
+      - ./infra/loki/config.yaml:/etc/loki/config.yaml:ro
+      - loki_data:/loki
+    ports:
+      - "3100:3100"
+    networks:
+      - lab-net
+
+  tempo:
+    image: grafana/tempo:2.4.1
+    container_name: tempo
+    command: ["-config.file=/etc/tempo/config.yaml"]
+    volumes:
+      - ./infra/tempo/config.yaml:/etc/tempo/config.yaml:ro
+      - tempo_data:/var/tempo
+    ports:
+      - "3200:3200"   # Tempo HTTP
+      - "4317"        # OTLP gRPC (internal)
+      - "4318"        # OTLP HTTP (internal)
+    networks:
+      - lab-net
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: alertmanager
+    command:
+      - "--config.file=/etc/alertmanager/config.yml"
+    volumes:
+      - ./infra/alertmanager/config.yml:/etc/alertmanager/config.yml:ro
+    ports:
+      - "9093:9093"
+    networks:
+      - lab-net
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: cadvisor
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    ports:
+      - "8086:8080"
+    networks:
+      - lab-net
+
+  node-exporter:
+    image: prom/node-exporter:v1.7.0
+    container_name: node-exporter
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
+    ports:
+      - "9100:9100"
+    networks:
+      - lab-net
+
+  # ─────────────── Application Services ───────────────
+  gateway:
+    build:
+      context: ./apps/gateway
+      dockerfile: Dockerfile
+    container_name: gateway
+    environment:
+      APP_ENV: lab
+      APP_VERSION: "1.0.0"
+      PORT: "8080"
+      ORDER_SERVICE_URL: http://order-service:8081
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_SERVICE_NAME: gateway
+      OTEL_SERVICE_NAMESPACE: retail-order-platform
+      LOG_FORMAT: json
+      LOG_LEVEL: INFO
+    ports:
+      - "8080:8080"
+    networks:
+      - lab-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+
+  order-service:
+    build:
+      context: ./apps/order-service
+      dockerfile: Dockerfile
+    container_name: order-service
+    environment:
+      APP_ENV: lab
+      APP_VERSION: "1.0.0"
+      PORT: "8081"
+      INVENTORY_SERVICE_URL: http://inventory-service:8082
+      PAYMENT_SERVICE_URL: http://payment-service:8083
+      NOTIFICATION_SERVICE_URL: http://notification-service:8084
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: orders
+      POSTGRES_USER: lab
+      POSTGRES_PASSWORD: lab
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      RABBITMQ_URL: amqp://lab:lab@rabbitmq:5672/
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_SERVICE_NAME: order-service
+      OTEL_SERVICE_NAMESPACE: retail-order-platform
+      LOG_FORMAT: json
+      LOG_LEVEL: INFO
+      PAYMENT_TIMEOUT_MS: "2000"
+      PAYMENT_MAX_RETRY: "2"
+      PAYMENT_FALLBACK_ENABLED: "false"
+      CIRCUIT_BREAKER_ENABLED: "false"
+    ports:
+      - "8081:8081"
+    networks:
+      - lab-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  inventory-service:
+    build:
+      context: ./apps/inventory-service
+      dockerfile: Dockerfile
+    container_name: inventory-service
+    environment:
+      APP_ENV: lab
+      APP_VERSION: "1.0.0"
+      PORT: "8082"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: orders
+      POSTGRES_USER: lab
+      POSTGRES_PASSWORD: lab
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_SERVICE_NAME: inventory-service
+      OTEL_SERVICE_NAMESPACE: retail-order-platform
+      LOG_FORMAT: json
+      LOG_LEVEL: INFO
+    ports:
+      - "8082:8082"
+    networks:
+      - lab-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  payment-service:
+    build:
+      context: ./apps/payment-service
+      dockerfile: Dockerfile
+    container_name: payment-service
+    environment:
+      APP_ENV: lab
+      APP_VERSION: "1.0.0"
+      PORT: "8083"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: orders
+      POSTGRES_USER: lab
+      POSTGRES_PASSWORD: lab
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_SERVICE_NAME: payment-service
+      OTEL_SERVICE_NAMESPACE: retail-order-platform
+      LOG_FORMAT: json
+      LOG_LEVEL: INFO
+      FAULT_ENABLED: "false"
+      FAULT_TYPE: "none"
+      FAULT_DELAY_MS: "0"
+    ports:
+      - "8083:8083"
+    networks:
+      - lab-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  notification-service:
+    build:
+      context: ./apps/notification-service
+      dockerfile: Dockerfile
+    container_name: notification-service
+    environment:
+      APP_ENV: lab
+      APP_VERSION: "1.0.0"
+      PORT: "8084"
+      RABBITMQ_URL: amqp://lab:lab@rabbitmq:5672/
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_SERVICE_NAME: notification-service
+      OTEL_SERVICE_NAMESPACE: retail-order-platform
+      LOG_FORMAT: json
+      LOG_LEVEL: INFO
+    ports:
+      - "8084:8084"
+    networks:
+      - lab-net
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: ./apps/worker
+      dockerfile: Dockerfile
+    container_name: worker
+    environment:
+      APP_ENV: lab
+      APP_VERSION: "1.0.0"
+      PORT: "8085"
+      RABBITMQ_URL: amqp://lab:lab@rabbitmq:5672/
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_SERVICE_NAME: worker
+      OTEL_SERVICE_NAMESPACE: retail-order-platform
+      LOG_FORMAT: json
+      LOG_LEVEL: INFO
+      SLOW_CONSUMER: "false"
+      SLOW_CONSUMER_DELAY_MS: "0"
+    ports:
+      - "8085:8085"
+    networks:
+      - lab-net
+    depends_on:
+      rabbitmq:
+        condition: service_healthy

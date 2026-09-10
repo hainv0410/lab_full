@@ -1,0 +1,114 @@
+{
+  "uid": "retail-overview",
+  "title": "Retail Order Platform Overview",
+  "tags": ["retail", "overview"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "15s",
+  "time": {"from": "now-30m", "to": "now"},
+  "panels": [
+    {
+      "id": 1, "type": "stat",
+      "title": "Request Rate (RPS)",
+      "gridPos": {"x": 0, "y": 0, "w": 4, "h": 4},
+      "targets": [{"expr": "sum(rate(http_requests_total{route='/api/orders'}[1m]))", "legendFormat": "RPS", "datasource": {"type": "prometheus", "uid": "-- Default --"}}],
+      "fieldConfig": {"defaults": {"unit": "reqps", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 50}, {"color": "red", "value": 100}]}}}
+    },
+    {
+      "id": 2, "type": "stat",
+      "title": "Error Rate",
+      "gridPos": {"x": 4, "y": 0, "w": 4, "h": 4},
+      "targets": [{"expr": "sum(rate(http_requests_total{route='/api/orders',status=~'5..'}[5m])) / sum(rate(http_requests_total{route='/api/orders'}[5m]))", "legendFormat": "Error Rate"}],
+      "fieldConfig": {"defaults": {"unit": "percentunit", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 0.01}, {"color": "red", "value": 0.05}]}}}
+    },
+    {
+      "id": 3, "type": "stat",
+      "title": "p95 Latency (Order Service)",
+      "gridPos": {"x": 8, "y": 0, "w": 4, "h": 4},
+      "targets": [{"expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{service='order-service',route='/api/orders'}[5m])) by (le))", "legendFormat": "p95"}],
+      "fieldConfig": {"defaults": {"unit": "s", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 0.3}, {"color": "red", "value": 0.5}]}}}
+    },
+    {
+      "id": 4, "type": "stat",
+      "title": "p99 Latency (Order Service)",
+      "gridPos": {"x": 12, "y": 0, "w": 4, "h": 4},
+      "targets": [{"expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{service='order-service',route='/api/orders'}[5m])) by (le))", "legendFormat": "p99"}],
+      "fieldConfig": {"defaults": {"unit": "s", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 1.0}, {"color": "red", "value": 2.0}]}}}
+    },
+    {
+      "id": 5, "type": "stat",
+      "title": "Queue Backlog",
+      "gridPos": {"x": 16, "y": 0, "w": 4, "h": 4},
+      "targets": [{"expr": "rabbitmq_queue_messages_ready{queue='notifications'}", "legendFormat": "Backlog"}],
+      "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 100}, {"color": "red", "value": 1000}]}}}
+    },
+    {
+      "id": 6, "type": "stat",
+      "title": "Payment Auth Rate",
+      "gridPos": {"x": 20, "y": 0, "w": 4, "h": 4},
+      "targets": [{"expr": "sum(rate(payment_authorizations_total{status='approved'}[5m])) / sum(rate(payment_authorizations_total[5m]))", "legendFormat": "Success"}],
+      "fieldConfig": {"defaults": {"unit": "percentunit", "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "yellow", "value": 0.95}, {"color": "green", "value": 0.99}]}}}
+    },
+    {
+      "id": 10, "type": "timeseries",
+      "title": "Request Rate by Service",
+      "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8},
+      "targets": [
+        {"expr": "sum(rate(http_requests_total[1m])) by (service)", "legendFormat": "{{service}}"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "reqps"}}
+    },
+    {
+      "id": 11, "type": "timeseries",
+      "title": "Error Rate by Service",
+      "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
+      "targets": [
+        {"expr": "sum(rate(http_requests_total{status=~'5..'}[5m])) by (service) / sum(rate(http_requests_total[5m])) by (service)", "legendFormat": "{{service}}"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "percentunit", "color": {"mode": "palette-classic"}}}
+    },
+    {
+      "id": 12, "type": "timeseries",
+      "title": "p95 / p99 Latency — Order Service",
+      "gridPos": {"x": 0, "y": 12, "w": 12, "h": 8},
+      "targets": [
+        {"expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{service='order-service'}[5m])) by (le))", "legendFormat": "p95"},
+        {"expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{service='order-service'}[5m])) by (le))", "legendFormat": "p99"},
+        {"expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket{service='order-service'}[5m])) by (le))", "legendFormat": "p50"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "s"}}
+    },
+    {
+      "id": 13, "type": "timeseries",
+      "title": "Payment Latency & Timeouts",
+      "gridPos": {"x": 12, "y": 12, "w": 12, "h": 8},
+      "targets": [
+        {"expr": "histogram_quantile(0.95, sum(rate(payment_authorization_duration_seconds_bucket[5m])) by (le))", "legendFormat": "payment p95"},
+        {"expr": "rate(payment_timeouts_total[5m])", "legendFormat": "timeout rate"},
+        {"expr": "rate(payment_retries_total[5m])", "legendFormat": "retry rate"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "s"}}
+    },
+    {
+      "id": 14, "type": "timeseries",
+      "title": "Inventory Reserve — Success vs Failed",
+      "gridPos": {"x": 0, "y": 20, "w": 12, "h": 8},
+      "targets": [
+        {"expr": "rate(inventory_reserve_total{status='success'}[5m])", "legendFormat": "success"},
+        {"expr": "rate(inventory_reserve_total{status='insufficient'}[5m])", "legendFormat": "insufficient"},
+        {"expr": "rate(inventory_reserve_total{status='not_found'}[5m])", "legendFormat": "not_found"}
+      ]
+    },
+    {
+      "id": 15, "type": "timeseries",
+      "title": "Notification Worker Throughput",
+      "gridPos": {"x": 12, "y": 20, "w": 12, "h": 8},
+      "targets": [
+        {"expr": "rate(notification_jobs_completed_total[5m])", "legendFormat": "completed/s"},
+        {"expr": "rate(notification_jobs_processed_total{status='error'}[5m])", "legendFormat": "error/s"},
+        {"expr": "rabbitmq_queue_messages_ready{queue='notifications'}", "legendFormat": "queue depth"}
+      ]
+    }
+  ]
+}

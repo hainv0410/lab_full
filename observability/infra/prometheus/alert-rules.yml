@@ -1,0 +1,168 @@
+groups:
+  # ─── Gateway / Create Order Journey ───────────────────────────────
+  - name: gateway-alerts
+    rules:
+      - alert: HighCreateOrderErrorRate
+        expr: |
+          (
+            sum(rate(http_requests_total{route="/api/orders", status=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total{route="/api/orders"}[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          service: gateway
+          journey: create_order
+          team: sre
+        annotations:
+          summary: "Error rate tạo đơn vượt 5%"
+          description: "Luồng tạo đơn hàng đang có tỷ lệ lỗi > 5%. Kiểm tra dashboard Create Order, trace lỗi gần nhất và dependency Payment/Inventory."
+          dashboard_url: "http://localhost:3000"
+          runbook_url: "docs/runbooks/create-order-error-rate.md"
+
+      - alert: GatewayDown
+        expr: up{job="gateway"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: gateway
+          team: sre
+        annotations:
+          summary: "Gateway service DOWN"
+          description: "Gateway không phản hồi scrape. Kiểm tra container status."
+
+  # ─── Order Service ─────────────────────────────────────────────────
+  - name: order-service-alerts
+    rules:
+      - alert: HighOrderLatencyP95
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(http_request_duration_seconds_bucket{service="order-service", route="/api/orders"}[5m])) by (le)
+          ) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          service: order-service
+          journey: create_order
+          team: backend
+        annotations:
+          summary: "p95 latency của Order Service vượt 500ms"
+          description: "Kiểm tra DB latency, payment service latency, queue backlog và trace gần nhất."
+          dashboard_url: "http://localhost:3000"
+          runbook_url: "docs/runbooks/order-high-latency.md"
+
+      - alert: HighOrderLatencyP99
+        expr: |
+          histogram_quantile(
+            0.99,
+            sum(rate(http_request_duration_seconds_bucket{service="order-service", route="/api/orders"}[5m])) by (le)
+          ) > 2.0
+        for: 5m
+        labels:
+          severity: critical
+          service: order-service
+          journey: create_order
+          team: backend
+        annotations:
+          summary: "p99 latency của Order Service vượt 2s"
+          description: "Tail latency rất cao. Kiểm tra ngay Payment Service timeout, DB slow query, connection pool."
+
+      - alert: OrderServiceDown
+        expr: up{job="order-service"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: order-service
+          team: sre
+        annotations:
+          summary: "Order Service DOWN"
+          description: "Order Service không phản hồi."
+
+  # ─── Payment Service ────────────────────────────────────────────────
+  - name: payment-alerts
+    rules:
+      - alert: HighPaymentErrorRate
+        expr: |
+          (
+            sum(rate(payment_authorizations_total{status!="approved"}[5m]))
+            /
+            sum(rate(payment_authorizations_total[5m]))
+          ) > 0.1
+        for: 5m
+        labels:
+          severity: critical
+          service: payment-service
+          journey: create_order
+          team: backend
+        annotations:
+          summary: "Payment authorization error rate vượt 10%"
+          description: "Payment service đang từ chối hoặc lỗi quá nhiều request. Kiểm tra trace và logs."
+
+      - alert: HighPaymentTimeouts
+        expr: rate(payment_timeouts_total[5m]) > 0.5
+        for: 3m
+        labels:
+          severity: warning
+          service: payment-service
+          journey: create_order
+          team: backend
+        annotations:
+          summary: "Payment timeout rate cao"
+          description: "Order Service đang timeout khi gọi Payment Service. Kiểm tra payment-service health và latency."
+
+  # ─── Queue / Worker ────────────────────────────────────────────────
+  - name: queue-alerts
+    rules:
+      - alert: NotificationQueueBacklog
+        expr: rabbitmq_queue_messages_ready{queue="notifications"} > 1000
+        for: 5m
+        labels:
+          severity: warning
+          service: worker
+          journey: async_notification
+          team: platform
+        annotations:
+          summary: "Notification queue backlog tăng cao (>1000 messages)"
+          description: "Worker xử lý không kịp. Kiểm tra worker health, throughput và DLQ."
+          dashboard_url: "http://localhost:3000"
+          runbook_url: "docs/runbooks/queue-backlog.md"
+
+      - alert: WorkerDown
+        expr: up{job="worker"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: worker
+          team: platform
+        annotations:
+          summary: "Worker DOWN"
+          description: "Worker service không phản hồi. Queue sẽ tích backlog."
+
+  # ─── Infrastructure ────────────────────────────────────────────────
+  - name: infra-alerts
+    rules:
+      - alert: HighRetryRate
+        expr: rate(payment_retries_total[5m]) > 2
+        for: 3m
+        labels:
+          severity: warning
+          service: order-service
+          journey: create_order
+          team: backend
+        annotations:
+          summary: "Payment retry rate cao — nguy cơ retry storm"
+          description: "Order Service đang retry Payment quá nhiều. Kiểm tra circuit breaker, backoff config."
+
+      - alert: DatabaseConnectionPoolHigh
+        expr: |
+          asyncpg_pool_size{service="order-service"} > 8
+        for: 5m
+        labels:
+          severity: warning
+          service: order-service
+          team: backend
+        annotations:
+          summary: "DB connection pool gần cạn"
+          description: "Kiểm tra slow queries, connection leak và DB performance."
